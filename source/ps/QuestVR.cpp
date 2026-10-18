@@ -91,6 +91,7 @@ CameraInput GetCameraInput() { return {}; }
 #include <limits>
 #include <memory>
 #include <sstream>
+#include <cctype>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
@@ -199,6 +200,9 @@ struct State
 	bool hasPassthrough{false};
 	bool hasRefreshRate{false};
 	bool hasPerformanceSettings{false};
+	bool hasPicoControllers{false};
+	// Pico headsets (weaker GPU than the Quest 3): own eye size setting.
+	bool isPico{false};
 	XrPassthroughFB passthrough{XR_NULL_HANDLE};
 	XrPassthroughLayerFB passthroughLayer{XR_NULL_HANDLE};
 
@@ -1055,6 +1059,7 @@ bool CreateActions()
 		!createAction(g_State.hapticAction, "haptic", XR_ACTION_TYPE_VIBRATION_OUTPUT, true))
 		return false;
 
+	// Meta Touch and Pico controllers have the same buttons and paths.
 	std::vector<XrActionSuggestedBinding> bindings;
 	auto bind = [&bindings](XrAction action, const char* path)
 	{
@@ -1078,13 +1083,27 @@ bool CreateActions()
 	bind(g_State.yAction, "/user/hand/left/input/y/click");
 	bind(g_State.menuAction, "/user/hand/left/input/menu/click");
 
-	XrPath profile;
-	xrStringToPath(g_State.instance, "/interaction_profiles/oculus/touch_controller", &profile);
-	XrInteractionProfileSuggestedBinding suggested{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
-	suggested.interactionProfile = profile;
-	suggested.countSuggestedBindings = static_cast<uint32_t>(bindings.size());
-	suggested.suggestedBindings = bindings.data();
-	if (!Check(xrSuggestInteractionProfileBindings(g_State.instance, &suggested), "xrSuggestInteractionProfileBindings"))
+	std::vector<const char*> profiles{"/interaction_profiles/oculus/touch_controller"};
+	if (g_State.hasPicoControllers)
+	{
+		profiles.push_back("/interaction_profiles/bytedance/pico4_controller");
+		profiles.push_back("/interaction_profiles/bytedance/pico4s_controller");
+		profiles.push_back("/interaction_profiles/bytedance/pico_neo3_controller");
+	}
+	bool anyProfile{false};
+	for (const char* profileName : profiles)
+	{
+		XrPath profile;
+		xrStringToPath(g_State.instance, profileName, &profile);
+		XrInteractionProfileSuggestedBinding suggested{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+		suggested.interactionProfile = profile;
+		suggested.countSuggestedBindings = static_cast<uint32_t>(bindings.size());
+		suggested.suggestedBindings = bindings.data();
+		const XrResult result{xrSuggestInteractionProfileBindings(g_State.instance, &suggested)};
+		VRLOG("Bindings for %s: %d", profileName, static_cast<int>(result));
+		anyProfile |= XR_SUCCEEDED(result);
+	}
+	if (!anyProfile)
 		return false;
 
 	for (int hand : {LEFT, RIGHT})
@@ -1318,6 +1337,9 @@ bool PreDeviceInit()
 		enabled.emplace_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
 	if (g_State.hasPerformanceSettings)
 		enabled.emplace_back(XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+	g_State.hasPicoControllers = hasExtension(XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
+	if (g_State.hasPicoControllers)
+		enabled.emplace_back(XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
 
 	XrInstanceCreateInfoAndroidKHR androidInfo{XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
 	androidInfo.applicationVM = vm;
@@ -1336,6 +1358,17 @@ bool PreDeviceInit()
 	systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
 	if (!Check(xrGetSystem(g_State.instance, &systemInfo, &g_State.systemId), "xrGetSystem"))
 		return false;
+	{
+		XrInstanceProperties instanceProperties{XR_TYPE_INSTANCE_PROPERTIES};
+		xrGetInstanceProperties(g_State.instance, &instanceProperties);
+		XrSystemProperties systemProperties{XR_TYPE_SYSTEM_PROPERTIES};
+		xrGetSystemProperties(g_State.instance, g_State.systemId, &systemProperties);
+		std::string names{std::string(instanceProperties.runtimeName) + " " + systemProperties.systemName};
+		std::transform(names.begin(), names.end(), names.begin(), [](unsigned char c) { return std::tolower(c); });
+		g_State.isPico = names.find("pico") != std::string::npos || names.find("bytedance") != std::string::npos;
+		VRLOG("Runtime %s, system %s%s", instanceProperties.runtimeName, systemProperties.systemName,
+			g_State.isPico ? " (Pico)" : "");
+	}
 
 	uint32_t viewCount{0};
 	xrEnumerateViewConfigurationViews(g_State.instance, g_State.systemId,
@@ -1355,7 +1388,8 @@ bool PreDeviceInit()
 	float width{std::min(recommendedWidth * eyeScale, maxWidth)};
 	// Fixed per-eye width (e.g. the Quest 3 panel's 2064), since the
 	// recommended size varies between launches.
-	const int fixedWidth{g_ConfigDB.Get("quest.eye.width", 0)};
+	const int fixedWidth{g_State.isPico ?
+		g_ConfigDB.Get("quest.pico.eye.width", 1600) : g_ConfigDB.Get("quest.eye.width", 0)};
 	if (fixedWidth > 0)
 		width = std::min(static_cast<float>(fixedWidth),
 			static_cast<float>(g_State.viewConfigs[0].maxImageRectWidth));
@@ -1536,7 +1570,8 @@ void UpdateRenderScale()
 		g_State.averageInterval = g_State.averageInterval * 0.9 + interval * 0.1;
 
 	const float minScale{std::clamp(g_ConfigDB.Get("quest.eye.minscale", 0.65f), 0.3f, 1.0f)};
-	const bool dynamic{g_ConfigDB.Get("quest.eye.dynamic", true)};
+	const bool dynamic{g_State.isPico ?
+		g_ConfigDB.Get("quest.pico.eye.dynamic", true) : g_ConfigDB.Get("quest.eye.dynamic", true)};
 	if (!dynamic)
 		g_State.renderScale = 1.0f;
 	else if (g_State.averageInterval > period * 1.06 && now - g_State.lastScaleChange > 0.3)

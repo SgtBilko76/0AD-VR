@@ -67,6 +67,15 @@ public class ZeroADActivity extends SDLActivity
 
 	private void requestStorageAccess()
 	{
+		// Android 10 (e.g. Pico 4): legacy storage with runtime permissions.
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
+			checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+		{
+			requestPermissions(new String[] {
+				android.Manifest.permission.READ_EXTERNAL_STORAGE,
+				android.Manifest.permission.WRITE_EXTERNAL_STORAGE }, 1);
+			return;
+		}
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager())
 		{
 			try
