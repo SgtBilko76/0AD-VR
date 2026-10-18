@@ -75,8 +75,11 @@ static time_t time_t_from_FAT(std::uint32_t fat_timedate)
 	t.tm_year  = bits(fat_date, 9,15) + 80;	// since 1900
 	t.tm_isdst = -1;	// unknown - let libc determine
 
-	// otherwise: totally bogus, and at the limit of 32-bit time_t
-	ENSURE(t.tm_year < 138);
+	// otherwise: totally bogus, and at the limit of 32-bit time_t.
+	// Archives built from converted cache files can carry pre-1980 times
+	// that wrap around; clamp instead of failing.
+	if (t.tm_year >= 138)
+		t.tm_year = 137;
 
 	time_t ret = mktime(&t);
 	ENSURE(ret != (time_t)-1);	// mktime shouldn't fail

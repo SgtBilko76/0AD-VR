@@ -69,6 +69,7 @@ public:
 private:
 	friend class CDevice;
 	friend class CSwapChain;
+	friend class CXRSwapChain;
 
 	static std::unique_ptr<CFramebuffer> Create(
 		CDevice* device, const char* name,

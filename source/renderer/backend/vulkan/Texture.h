@@ -81,6 +81,7 @@ public:
 private:
 	friend class CDevice;
 	friend class CSwapChain;
+	friend class CXRSwapChain;
 
 	CTexture(CDevice* device);
 

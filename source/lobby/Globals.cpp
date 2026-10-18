@@ -21,3 +21,15 @@
 
 XmppClient *g_XmppClient = nullptr;
 bool g_rankedGame = false;
+
+#if !CONFIG2_LOBBY
+// Without the lobby, g_XmppClient is always null, but the network code still
+// references these members.
+class XmppClient::Impl {};
+XmppClient::~XmppClient() = default;
+void XmppClient::recv() {}
+std::string XmppClient::GetJID() { return {}; }
+void XmppClient::SendIqGetConnectionData(const std::string&, const std::string&, const std::string&, bool) {}
+void XmppClient::SendIqLobbyAuth(const std::string&, const std::string&) {}
+void XmppClient::SendStunEndpointToHost(const std::string&, std::uint16_t, const std::string&) {}
+#endif

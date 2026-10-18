@@ -40,6 +40,7 @@
 #include "ps/CStrInternStatic.h"
 #include "ps/ConfigDB.h"
 #include "ps/Filesystem.h"
+#include "ps/QuestVR.h"
 #include "renderer/Renderer.h"
 #include "renderer/SceneRenderer.h"
 #include "renderer/backend/Format.h"
@@ -250,13 +251,19 @@ void SkyManager::RenderSky(
 	deviceCommandContext->SetTexture(
 		shader->GetBindingSlot(str_baseTex), skyTextureCube->GetBackendTexture());
 
-	// Translate so the sky center is at the camera space origin.
-	CMatrix3D translate;
-	translate.SetTranslation(camera.GetOrientation().GetTranslation());
-
 	// Currently we have a hardcoded near plane in the projection matrix.
+	// In VR the near plane is far bigger than 10 units: put the sky halfway
+	// to the far plane instead, so it surrounds the player like a dome.
+	const float skySize{QuestVR::IsActive() ? camera.GetFarPlane() * 0.5f : 10.0f};
+
+	// Translate so the sky center is at the camera space origin. In VR lower
+	// it, so the horizon sits at the table instead of at eye height and the
+	// dark underside of the skybox stays below the battlefield.
+	CMatrix3D translate;
+	translate.SetTranslation(camera.GetOrientation().GetTranslation() +
+		CVector3D(0.0f, QuestVR::IsActive() ? skySize * -0.15f : 0.0f, 0.0f));
 	CMatrix3D scale;
-	scale.SetScaling(10.0f, 10.0f, 10.0f);
+	scale.SetScaling(skySize, skySize, skySize);
 
 	// Rotate so that the "left" face, which contains the brightest part of
 	// each skymap, is in the direction of the sun from our light

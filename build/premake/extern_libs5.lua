@@ -624,7 +624,7 @@ extern_lib_defs = {
 		compile_settings = function()
 			if os.istarget("windows") then
 				includedirs { libraries_dir .. "sdl2/include/SDL" }
-			elseif not _OPTIONS["android"] then
+			else
 				pkgconfig.add_includes("sdl2")
 			end
 		end,
@@ -640,7 +640,7 @@ extern_lib_defs = {
 				filter { "system:windows", "configurations:Debug" }
 					linkoptions { "/IGNORE:4099" }
 				filter{}
-			elseif not _OPTIONS["android"] then
+			else
 				pkgconfig.add_links("sdl2")
 			end
 		end,
@@ -659,9 +659,7 @@ extern_lib_defs = {
 			filter {}
 
 			if _OPTIONS["with-system-mozjs"] then
-				if not _OPTIONS["android"] then
-					pkgconfig.add_includes_after("mozjs-128")
-				end
+				pkgconfig.add_includes_after("mozjs-128")
 			else
 				filter "Debug"
 					externalincludedirs { libraries_source_dir.."spidermonkey/include-debug" }
@@ -673,11 +671,7 @@ extern_lib_defs = {
 		end,
 		link_settings = function()
 			if _OPTIONS["with-system-mozjs"] then
-				if _OPTIONS["android"] then
-					links { "mozjs-128" }
-				else
-					pkgconfig.add_links("mozjs-128")
-				end
+				pkgconfig.add_links("mozjs-128")
 			else
 				filter { "Debug" }
 					links { "mozjs128-debug" }

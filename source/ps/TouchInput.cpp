@@ -27,11 +27,21 @@
 #include "lib/timer.h"
 #include "maths/Matrix3D.h"
 #include "ps/Game.h"
+#include "ps/QuestVR.h"
 #include "ps/VideoMode.h"
 
 #include <SDL_events.h>
 #include <SDL_mouse.h>
 #include <cinttypes>
+
+namespace
+{
+// Camera gestures only make sense in a running game, not in menus.
+CGameView* GetGameView()
+{
+	return g_Game && g_Game->IsGameStarted() ? g_Game->GetView() : nullptr;
+}
+} // anonymous namespace
 
 // When emulation is enabled:
 // Left-click to put finger 0 down.
@@ -59,6 +69,9 @@ CTouchInput::~CTouchInput()
 
 bool CTouchInput::IsEnabled()
 {
+	// In VR the controllers drive the mouse and camera instead.
+	if (QuestVR::IsActive())
+		return false;
 #if OS_ANDROID || EMULATE_FINGERS_WITH_MOUSE
 	return true;
 #else
@@ -94,6 +107,8 @@ void CTouchInput::OnFingerUp(int id, int x, int y)
 	{
 		m_State = STATE_INACTIVE;
 
+#if EMULATE_FINGERS_WITH_MOUSE
+		// With real touch input, SDL already synthesizes mouse events for taps.
 		SDL_Event ev;
 		ev.button.button = SDL_BUTTON_LEFT;
 		ev.button.x = m_Pos[0].X;
@@ -106,6 +121,7 @@ void CTouchInput::OnFingerUp(int id, int x, int y)
 		ev.type = SDL_MOUSEBUTTONUP;
 		ev.button.state = SDL_RELEASED;
 		SDL_PushEvent(&ev);
+#endif
 	}
 	else if (m_State == STATE_ZOOMING && id == 1)
 	{
@@ -126,13 +142,17 @@ void CTouchInput::OnFingerMotion(int id, int x, int y)
 	m_Prev[id] = m_Pos[id];
 	m_Pos[id] = pos;
 
+	CGameView* gameView{GetGameView()};
+	if (!gameView)
+		return;
+
 	if (m_State == STATE_FIRST_TOUCH && id == 0)
 	{
 		if ((pos - m_FirstTouchPos).Length() > 16)
 		{
 			m_State = STATE_PANNING;
 
-			const CCamera& camera{g_Game->GetView()->GetCamera()};
+			const CCamera& camera{gameView->GetCamera()};
 			m_PanFocus = camera.GetWorldCoordinates(m_FirstTouchPos.X, m_FirstTouchPos.Y, true);
 			m_PanDist = (m_PanFocus - camera.GetOrientation().GetTranslation()).Y;
 		}
@@ -140,12 +160,12 @@ void CTouchInput::OnFingerMotion(int id, int x, int y)
 
 	if (m_State == STATE_PANNING && id == 0)
 	{
-		CCamera camera{g_Game->GetView()->GetCamera()};
+		CCamera camera{gameView->GetCamera()};
 		auto [origin, dir] = camera.BuildCameraRay(x, y);
 		dir *= m_PanDist / dir.Y;
 		camera.GetOrientation().Translate(m_PanFocus - dir - origin);
 		camera.UpdateFrustum();
-		g_Game->GetView()->SetCamera(camera);
+		gameView->SetCamera(camera);
 	}
 
 	if (m_State == STATE_ZOOMING && id == 1)
@@ -154,12 +174,12 @@ void CTouchInput::OnFingerMotion(int id, int x, int y)
 		float newDist = (m_Pos[id] - m_Pos[1 - id]).Length();
 		float zoomDist = (newDist - oldDist) * -0.005f * m_PanDist;
 
-		CCamera camera{g_Game->GetView()->GetCamera()};
+		CCamera camera{gameView->GetCamera()};
 		CVector3D dir{camera.BuildCameraRay(m_Pos[0].X, m_Pos[0].Y).direction};
 		dir *= zoomDist;
 		camera.GetOrientation().Translate(dir);
 		camera.UpdateFrustum();
-		g_Game->GetView()->SetCamera(camera);
+		gameView->SetCamera(camera);
 
 		m_PanFocus = camera.GetWorldCoordinates(m_Pos[0].X, m_Pos[0].Y, true);
 		m_PanDist = (m_PanFocus - camera.GetOrientation().GetTranslation()).Y;

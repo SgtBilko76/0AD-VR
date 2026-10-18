@@ -40,6 +40,7 @@
 #include "ps/GameSetup/Config.h"
 #include "ps/Hotkey.h"
 #include "ps/Pyrogenesis.h"
+#include "ps/QuestVR.h"
 #include "renderer/Renderer.h"
 #include "renderer/backend/IDevice.h"
 #include "renderer/backend/ISwapChain.h"
@@ -292,7 +293,8 @@ Input::Reaction CVideoMode::InputHandler::operator()(const SDL_Event& ev)
 			return Input::Reaction::HANDLED;
 		}
 	}
-	if (ev.type == SDL_WINDOWEVENT && !videoMode.IsInFullscreen())
+	// In VR the window isn't visible; its size is the GUI panel's.
+	if (ev.type == SDL_WINDOWEVENT && !videoMode.IsInFullscreen() && !QuestVR::IsActive())
 	{
 		switch (ev.window.event)
 		{
@@ -535,6 +537,8 @@ bool CVideoMode::SetVideoMode(int w, int h, int bpp, bool fullscreen)
 
 	// Grab the current video settings
 	SDL_GetWindowSize(m_Window, &m_CurrentW, &m_CurrentH);
+	if (QuestVR::IsActive())
+		QuestVR::GetPanelSize(m_CurrentW, m_CurrentH);
 	m_CurrentBPP = bpp;
 
 	// #545: we need to constrain the window in fullscreen mode to avoid mouse
@@ -653,6 +657,7 @@ void CVideoMode::Shutdown()
 	}
 
 	m_SwapChain.reset();
+	QuestVR::Shutdown();
 	m_BackendDevice.reset();
 	if (m_Window)
 	{
@@ -687,6 +692,9 @@ bool CVideoMode::TryCreateBackendDevice(SDL_Window* window)
 		ENSURE(m_BackendDevice);
 		break;
 	case Renderer::Backend::Backend::VULKAN:
+		// On Meta Quest, OpenXR decides which extensions and physical device
+		// the Vulkan device needs.
+		QuestVR::PreDeviceInit();
 		m_BackendDevice = Renderer::Backend::Vulkan::CreateDevice(window);
 		// HACK: the repository doesn't have prebuilt SPIR-V shaders. So some
 		// users might get an error in case of missing shaders.
@@ -700,6 +708,8 @@ bool CVideoMode::TryCreateBackendDevice(SDL_Window* window)
 				m_BackendDevice.reset();
 			}
 		}
+		if (m_BackendDevice && QuestVR::PostDeviceInit(m_BackendDevice.get()))
+			return true;
 		break;
 	}
 	// We don't need to wait because we don't have any swapchain in use.
@@ -723,6 +733,8 @@ void CVideoMode::DowngradeBackendSettingAfterCreationFailure()
 
 void CVideoMode::RecreateSwapChain()
 {
+	if (QuestVR::IsActive())
+		return;
 	if (m_BackendDevice)
 	{
 		char nameBuffer[64];
@@ -734,6 +746,9 @@ void CVideoMode::RecreateSwapChain()
 
 Renderer::Backend::ISwapChain* CVideoMode::GetOrCreateSwapChain()
 {
+	// VR renders into OpenXR swapchains only.
+	if (QuestVR::IsActive())
+		return nullptr;
 #if !OS_MACOSX
 	const bool vsync{g_ConfigDB.Get("vsync", false)};
 	const bool vsyncChanged{m_ConfigVSync != vsync};
@@ -869,6 +884,9 @@ void CVideoMode::UpdateRenderer(int w, int h)
 	if (w < 2) w = 2; // avoid GL errors caused by invalid sizes
 	if (h < 2) h = 2;
 
+	if (QuestVR::IsActive())
+		QuestVR::GetPanelSize(w, h);
+
 	m_CurrentW = w;
 	m_CurrentH = h;
 
@@ -889,7 +907,16 @@ void CVideoMode::UpdateRenderer(int w, int h)
 	}
 
 	if (CRenderer::IsInitialised())
-		g_Renderer.CreateViewSizeDependentObjects(w, h);
+	{
+		if (QuestVR::IsActive())
+		{
+			int eyeWidth{0}, eyeHeight{0};
+			QuestVR::GetEyeSize(eyeWidth, eyeHeight);
+			g_Renderer.CreateViewSizeDependentObjects(eyeWidth, eyeHeight);
+		}
+		else
+			g_Renderer.CreateViewSizeDependentObjects(w, h);
+	}
 
 	if (g_GUI)
 		g_GUI->UpdateResolution();

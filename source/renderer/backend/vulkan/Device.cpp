@@ -43,6 +43,7 @@
 #include "renderer/backend/vulkan/SwapChain.h"
 #include "renderer/backend/vulkan/Texture.h"
 #include "renderer/backend/vulkan/Utilities.h"
+#include "renderer/backend/vulkan/XRInterop.h"
 #include "scriptinterface/Object.h"
 #include "scriptinterface/Request.h"
 
@@ -184,7 +185,13 @@ GLADapiproc GetInstanceProcAddr(VkInstance instance, const char* name)
 {
 #if SDL_VERSION_ATLEAST(2, 0, 6)
 	PFN_vkGetInstanceProcAddr function = reinterpret_cast<PFN_vkGetInstanceProcAddr>(SDL_Vulkan_GetVkGetInstanceProcAddr());
-	return reinterpret_cast<GLADapiproc>(function(instance, name));
+	PFN_vkVoidFunction result = function(instance, name);
+	// Global commands (like vkEnumerateInstanceExtensionProperties) must be
+	// queried with a null instance; strict loaders (e.g. Android) return null
+	// otherwise.
+	if (!result && instance != VK_NULL_HANDLE)
+		result = function(VK_NULL_HANDLE, name);
+	return reinterpret_cast<GLADapiproc>(result);
 #else
 	return nullptr;
 #endif
@@ -232,6 +239,14 @@ std::unique_ptr<CDevice> CDevice::Create(SDL_Window* window)
 	applicationInfo.apiVersion = VK_API_VERSION_1_1;
 
 	std::vector<const char*> requiredInstanceExtensions = GetRequiredSDLExtensions(window);
+	const XR::Requirements* xrRequirements{XR::GetRequirements()};
+	if (xrRequirements)
+	{
+		for (const std::string& extension : xrRequirements->instanceExtensions)
+			if (std::find_if(requiredInstanceExtensions.begin(), requiredInstanceExtensions.end(),
+				[&extension](const char* name) { return extension == name; }) == requiredInstanceExtensions.end())
+				requiredInstanceExtensions.emplace_back(extension.c_str());
+	}
 
 	device->m_ValidationLayers = GetAvailableValidationLayers();
 	auto hasValidationLayer = [&layers = device->m_ValidationLayers](const char* name) -> bool
@@ -405,6 +420,21 @@ std::unique_ptr<CDevice> CDevice::Create(SDL_Window* window)
 		if (chosenDeviceIt == device->m_AvailablePhysicalDevices.end())
 			LOGWARNING("Device with override index %d not found.", deviceIndexOverride);
 	}
+	if (chosenDeviceIt == device->m_AvailablePhysicalDevices.end() && xrRequirements &&
+		xrRequirements->choosePhysicalDevice)
+	{
+		// OpenXR requires rendering on the device the headset runtime uses.
+		const VkPhysicalDevice xrPhysicalDevice{reinterpret_cast<VkPhysicalDevice>(
+			xrRequirements->choosePhysicalDevice(reinterpret_cast<void*>(device->m_Instance)))};
+		chosenDeviceIt = std::find_if(
+			device->m_AvailablePhysicalDevices.begin(), device->m_AvailablePhysicalDevices.end(),
+			[xrPhysicalDevice](const SAvailablePhysicalDevice& availableDevice)
+			{
+				return availableDevice.device == xrPhysicalDevice;
+			});
+		if (chosenDeviceIt == device->m_AvailablePhysicalDevices.end())
+			LOGWARNING("Vulkan device required by OpenXR not found.");
+	}
 	if (chosenDeviceIt == device->m_AvailablePhysicalDevices.end())
 	{
 		const bool chooseBestDevice{g_ConfigDB.Get("renderer.backend.vulkan.choosebestdevice", false)};
@@ -462,6 +492,13 @@ std::unique_ptr<CDevice> CDevice::Create(SDL_Window* window)
 	std::vector<const char*> deviceExtensions = requiredDeviceExtensions;
 	if (hasDescriptorIndexing)
 		deviceExtensions.emplace_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+	if (xrRequirements)
+	{
+		for (const std::string& extension : xrRequirements->deviceExtensions)
+			if (std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
+				[&extension](const char* name) { return extension == name; }) == deviceExtensions.end())
+				deviceExtensions.emplace_back(extension.c_str());
+	}
 
 	device->m_GraphicsQueueFamilyIndex = choosenDevice.graphicsQueueFamilyIndex;
 	const std::array<size_t, 1> queueFamilyIndices{{

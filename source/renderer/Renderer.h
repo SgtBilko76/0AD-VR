@@ -163,6 +163,8 @@ protected:
 
 	bool ShouldRender() const;
 
+	void RenderFrameVR();
+
 	void RenderFrameImpl(
 		Renderer::Backend::ISwapChain& swapChain,
 		const bool renderGUI, const bool renderLogger);

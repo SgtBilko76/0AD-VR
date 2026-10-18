@@ -187,6 +187,13 @@ public:
 
 	uint32_t GetFrameID() const { return m_FrameID; }
 
+	// Accessors needed to bind an OpenXR session to this device.
+	VkInstance GetVkInstance() const { return m_Instance; }
+	VkPhysicalDevice GetVkPhysicalDevice() const { return m_ChoosenDevice.device; }
+	uint32_t GetGraphicsQueueFamilyIndex() const { return m_GraphicsQueueFamilyIndex; }
+	VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
+	CSubmitScheduler& GetSubmitScheduler() { return *m_SubmitScheduler; }
+
 private:
 	CDevice();
 

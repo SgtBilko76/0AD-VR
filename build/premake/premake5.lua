@@ -39,7 +39,7 @@ print("LDFLAGS    : " .. (os.getenv("LDFLAGS") or "unset"))
 print("--------------------------------------------------------------------------------")
 print("")
 
-newoption { category = "Pyrogenesis", trigger = "android", description = "Use non-working Android cross-compiling mode" }
+newoption { category = "Pyrogenesis", trigger = "android", description = "Cross-compile for Android arm64 (Meta Quest), see build/quest" }
 newoption { category = "Pyrogenesis", trigger = "coverage", description = "Enable code coverage data collection (GCC only)" }
 newoption { category = "Pyrogenesis", trigger = "gles", description = "Use non-working OpenGL ES 2.0 mode" }
 newoption { category = "Pyrogenesis", trigger = "minimal-flags", description = "Only set compiler/linker flags that are really needed. Has no effect on Windows builds" }
@@ -91,8 +91,10 @@ end
 arch = "x86"
 macos_arch = "x86_64"
 
+rtti_setting = _OPTIONS["android"] and "on" or "off"
+
 if _OPTIONS["android"] then
-	arch = "arm"
+	arch = "aarch64"
 elseif os.istarget("windows") then
 	if os.getenv("HOSTTYPE") then
 		arch = os.getenv("HOSTTYPE")
@@ -661,7 +663,9 @@ function setup_static_lib_project (project_name, rel_source_dirs, extern_libs, e
 
 	-- Deactivate Run Time Type Information. Performance of dynamic_cast is very poor.
 	-- The exception to this principle is Atlas UI, which is not a static library.
-	rtti "off"
+	-- On Android, -fno-rtti makes clang emit local exception typeinfos, which
+	-- libc++ compares by address, so exceptions from libc++_shared would never match.
+	rtti(rtti_setting)
 
 	if os.istarget("windows") then
 		if arch == "amd64" then
@@ -1044,12 +1048,8 @@ function setup_all_libs ()
 		table.insert(source_dirs, v);
 	end
 
-	if os.istarget("linux") then
-		if _OPTIONS["android"] then
-			table.insert(source_dirs, "lib/sysdep/os/android")
-		else
-			table.insert(source_dirs, "lib/sysdep/os/unix/x")
-		end
+	if os.istarget("linux") and not _OPTIONS["android"] then
+		table.insert(source_dirs, "lib/sysdep/os/unix/x")
 	end
 
 	-- On OSX, disable precompiled headers because C++ files and Objective-C++ files are
@@ -1152,9 +1152,11 @@ function setup_main_exe ()
 	project_add_contents(source_root, {}, {}, extra_params)
 	project_add_extern_libs(used_extern_libs, target_type)
 
-	dependson { "Collada" }
+	if not _OPTIONS["android"] then
+		dependson { "Collada" }
+	end
 
-	rtti "off"
+	rtti(rtti_setting)
 
 	-- Platform Specifics
 	if os.istarget("windows") then
@@ -1190,10 +1192,8 @@ function setup_main_exe ()
 		end
 
 		if _OPTIONS["android"] then
-			-- NDK's STANDALONE-TOOLCHAIN.html says this is required
-			linkoptions { "-Wl,--fix-cortex-a8" }
-
-			links { "log" }
+			-- openxr_loader: Meta Quest VR mode (source/ps/QuestVR.cpp)
+			links { "log", "android", "openxr_loader" }
 		end
 
 		if link_execinfo then
@@ -1566,9 +1566,11 @@ function setup_tests()
 	project_add_contents(source_root, {}, {}, extra_params)
 	project_add_extern_libs(used_extern_libs, target_type)
 
-	dependson { "Collada" }
+	if not _OPTIONS["android"] then
+		dependson { "Collada" }
+	end
 
-	rtti "off"
+	rtti(rtti_setting)
 
 	-- TODO: should fix the duplication between this OS-specific linking
 	-- code, and the similar version in setup_main_exe
@@ -1599,8 +1601,7 @@ function setup_tests()
 		end
 
 		if _OPTIONS["android"] then
-			-- NDK's STANDALONE-TOOLCHAIN.html says this is required
-			linkoptions { "-Wl,--fix-cortex-a8" }
+			links { "log", "android" }
 		end
 
 		if os.istarget("linux") or os.getversion().description == "GNU/kFreeBSD" then
@@ -1663,7 +1664,10 @@ if not _OPTIONS["without-atlas"] then
 	setup_atlas_frontends()
 end
 
-setup_collada_projects()
+-- On Android, models are converted offline (archive build), so Collada is not needed.
+if not _OPTIONS["android"] then
+	setup_collada_projects()
+end
 
 if not _OPTIONS["without-tests"] then
 	setup_tests()

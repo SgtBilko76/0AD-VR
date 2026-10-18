@@ -35,6 +35,18 @@
 #include <string>
 #include <system_error>
 
+#if OS_ANDROID
+namespace
+{
+// The Java activity sets this to the app's external files directory.
+OsPath AndroidRoot()
+{
+	const char* root = std::getenv("ZEROAD_ANDROID_ROOT");
+	return OsPath(root && root[0] ? root : "/sdcard/0ad");
+}
+} // anonymous namespace
+#endif
+
 #if OS_WIN
 # include "lib/sysdep/os/win/wutil.h"	// wutil_*Path
 #elif OS_MACOSX
@@ -66,7 +78,7 @@ Paths::Paths(const CmdLineArgs& args)
 
 #if OS_ANDROID
 
-		const OsPath appdata = OsPath("/sdcard/0ad/appdata");
+		const OsPath appdata = AndroidRoot() / "appdata";
 
 		// We don't make the game vs. user data distinction on Android
 		m_gameData = appdata/"data"/"";
@@ -170,7 +182,7 @@ Paths::Paths(const CmdLineArgs& args)
 /*static*/ OsPath Paths::Root(const OsPath& argv0)
 {
 #if OS_ANDROID
-	return OsPath("/sdcard/0ad"); // TODO: this is kind of bogus
+	return AndroidRoot();
 #else
 
 	// get full path to executable

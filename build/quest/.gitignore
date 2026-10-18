@@ -1,0 +1,8 @@
+work/
+prefix/
+out/
+host-prefix/
+host-work/
+host-pyrogenesis
+stage/
+*.log

@@ -71,6 +71,7 @@ that of Atlas depending on commandline parameters.
 #include "ps/Profile.h"
 #include "ps/Profiler2.h"
 #include "ps/Pyrogenesis.h"
+#include "ps/QuestVR.h"
 #include "ps/Replay.h"
 #include "ps/TaskManager.h"
 #include "ps/TouchInput.h"
@@ -267,7 +268,8 @@ static void PumpEvents()
  */
 inline static void LimitFPS()
 {
-	if (g_VideoMode.IsVSyncEnabled())
+	// The OpenXR runtime paces frames in VR.
+	if (g_VideoMode.IsVSyncEnabled() || QuestVR::IsActive())
 		return;
 
 	const double fpsLimit{
@@ -404,6 +406,10 @@ static void Frame(RL::Interface* rlInterface, const int fixedFrameFrequency)
 	ProgressiveLoad();
 
 	RendererIncrementalLoad();
+
+	// Waits for the headset's next frame and queues controller input as SDL
+	// events (no-op outside Quest VR).
+	QuestVR::BeginFrame();
 
 	PumpEvents();
 

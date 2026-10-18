@@ -216,7 +216,7 @@ vec4 getFoam(vec4 fancyeffects, float shadow)
 
 void main()
 {
-	float los = getLOS(GET_DRAW_TEXTURE_2D(losTex), v_los);
+	float los = getVisibleLOS(GET_DRAW_TEXTURE_2D(losTex), v_los);
 	// We don't need to render a water fragment if it's invisible.
 	if (los < 0.001)
 	{

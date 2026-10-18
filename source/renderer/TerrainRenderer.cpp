@@ -42,6 +42,7 @@
 #include "ps/CStrIntern.h"
 #include "ps/CStrInternStatic.h"
 #include "ps/Profile.h"
+#include "ps/QuestVR.h"
 #include "renderer/DecalRData.h"
 #include "renderer/PatchRData.h"
 #include "renderer/PostprocManager.h"
@@ -351,7 +352,10 @@ void TerrainRenderer::RenderTerrainShader(
 			});
 	}
 
-	// render the solid black sides of the map first
+	// render the solid black sides of the map first (not in VR, where the
+	// battlefield floats in the sky or the room and they'd be black walls)
+	if (!QuestVR::IsActive())
+	{
 	deviceCommandContext->SetGraphicsPipelineState(
 		m->shaderTechniqueSolid->GetGraphicsPipelineState());
 	deviceCommandContext->BeginPass();
@@ -368,6 +372,7 @@ void TerrainRenderer::RenderTerrainShader(
 		deviceCommandContext, m->sideVertexInputLayout, visiblePatches);
 
 	deviceCommandContext->EndPass();
+	}
 
 	const CMaterial::Pass materialPass{GetMaterialPassFromCullGroup(cullGroup, wireframe)};
 

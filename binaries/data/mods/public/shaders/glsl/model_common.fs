@@ -114,7 +114,7 @@ void main()
   color = applyFog(color, fogColor, fogParams);
 
 #if !IGNORE_LOS
-  color *= getLOS(GET_DRAW_TEXTURE_2D(losTex), v_los);
+  color *= getVisibleLOS(GET_DRAW_TEXTURE_2D(losTex), v_los);
 #endif
 
   color *= shadingColor;

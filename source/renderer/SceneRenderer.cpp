@@ -46,6 +46,7 @@
 #include "ps/CStrInternStatic.h"
 #include "ps/Game.h"
 #include "ps/Profile.h"
+#include "ps/QuestVR.h"
 #include "renderer/CPUSkinnedModelRenderer.h"
 #include "renderer/DebugRenderer.h"
 #include "renderer/GPUSkinnedModelRenderer.h"
@@ -932,7 +933,9 @@ void CSceneRenderer::RenderSubmissions(
 
 	constexpr int cullGroup = CULL_DEFAULT;
 
-	m->skyManager.RenderSky(deviceCommandContext);
+	// In mixed reality the room is the sky.
+	if (!QuestVR::IsMixedReality())
+		m->skyManager.RenderSky(deviceCommandContext);
 
 	// render submitted patches and models
 	RenderPatches(deviceCommandContext, context, cullGroup);

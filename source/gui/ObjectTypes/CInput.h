@@ -51,6 +51,7 @@ protected: // forwards
 	struct SRow;
 
 public:
+	bool IsReadonly() const { return m_Readonly; }
 	CInput(CGUI& pGUI);
 
 	/**

@@ -56,6 +56,7 @@
 #include "ps/Hotkey.h"
 #include "ps/Profile.h"
 #include "ps/ProfileViewer.h"
+#include "ps/QuestVR.h"
 #include "ps/Profiler2.h"
 #include "ps/Util.h"
 #include "ps/VideoMode.h"
@@ -445,7 +446,14 @@ CRenderer::CRenderer(Renderer::Backend::IDevice* device)
 	// Create terrain related stuff.
 	new CTerrainTextureManager(device);
 
-	Open(g_VideoMode.GetWindowWidth(), g_VideoMode.GetWindowHeight());
+	if (QuestVR::IsActive())
+	{
+		int eyeWidth{0}, eyeHeight{0};
+		QuestVR::GetEyeSize(eyeWidth, eyeHeight);
+		Open(eyeWidth, eyeHeight);
+	}
+	else
+		Open(g_VideoMode.GetWindowWidth(), g_VideoMode.GetWindowHeight());
 
 	// Setup lighting environment. Since the Renderer accesses the
 	// lighting environment through a pointer, this has to be done before
@@ -520,6 +528,12 @@ void CRenderer::RenderFrame(const bool needsPresent)
 {
 	// Do not render if not focused while in fullscreen or minimised,
 	// as that triggers a difficult-to-reproduce crash on some graphic cards.
+	if (QuestVR::IsActive())
+	{
+		RenderFrameVR();
+		return;
+	}
+
 	if (!ShouldRender())
 		return;
 
@@ -554,6 +568,139 @@ void CRenderer::RenderFrame(const bool needsPresent)
 		if (needsPresent)
 			swapChain->Present();
 	}
+}
+
+void CRenderer::RenderFrameVR()
+{
+	if (!QuestVR::ShouldRender())
+	{
+		QuestVR::EndFrame(m->device, false, false, false);
+		return;
+	}
+
+	PROFILE3("render VR");
+	m->m_ScreenShotType = ScreenShotType::NONE;
+
+	g_Profiler2.RecordGPUFrameStart(m->deviceCommandContext.get());
+
+	g_TexMan.UploadResourcesIfNeeded(m->deviceCommandContext.get());
+	m->textureManager.MakeUploadProgress(m->deviceCommandContext.get());
+
+	if (g_Game)
+		m->sceneRenderer.SetSimulation(g_Game->GetSimulation2());
+
+	// The battlefield as a stereo tabletop.
+	bool eyesRendered{false};
+	if (g_Game && g_Game->IsGameStarted())
+	{
+		CGameView& gameView{*g_Game->GetView()};
+		g_Game->CachePlayerColors();
+		CCamera eyeCamera, cullCamera;
+		if (QuestVR::GetEyeCamera(0, gameView.GetCamera(), eyeCamera, cullCamera))
+		{
+			eyesRendered = true;
+			for (int eye = 0; eye < 2; ++eye)
+			{
+				if (eye > 0)
+					QuestVR::GetEyeCamera(eye, gameView.GetCamera(), eyeCamera, cullCamera);
+				Renderer::Backend::ISwapChain* swapChain{QuestVR::GetEyeSwapChain(eye)};
+				if (!swapChain || !swapChain->AcquireNextBackbuffer())
+				{
+					eyesRendered = false;
+					break;
+				}
+
+				m->sceneRenderer.SetSceneCamera(eyeCamera, cullCamera);
+				BeginFrame();
+				gameView.EnumerateSceneObjects();
+				m->sceneRenderer.PrepareSubmissions(m->deviceCommandContext.get());
+
+				Renderer::Backend::IFramebuffer* framebuffer{swapChain->GetCurrentBackbuffer(
+					Renderer::Backend::AttachmentLoadOp::CLEAR,
+					Renderer::Backend::AttachmentStoreOp::STORE,
+					Renderer::Backend::AttachmentLoadOp::CLEAR,
+					Renderer::Backend::AttachmentStoreOp::DONT_CARE)};
+				Renderer::Backend::IDeviceCommandContext::Rect viewportRect{};
+				// Top-left part of the image (the backend's y is bottom-up).
+				QuestVR::GetEyeRenderSize(viewportRect.width, viewportRect.height);
+				viewportRect.y = framebuffer->GetHeight() - viewportRect.height;
+				m->deviceCommandContext->BeginFramebufferPass(framebuffer);
+				m->deviceCommandContext->SetViewports(1, &viewportRect);
+				m->sceneRenderer.RenderSubmissions(m->deviceCommandContext.get());
+				RenderGameOverlays(gameView);
+				QuestVR::DrawLaser(*m->deviceCommandContext, true);
+				m->deviceCommandContext->EndFramebufferPass();
+				swapChain->Present();
+
+				EndFrame();
+			}
+		}
+	}
+
+	// Menus: eye images hold only the laser pointer.
+	bool eyesOverlay{false};
+	if (!eyesRendered && !(g_Game && g_Game->IsGameStarted()))
+	{
+		CCamera eyeCamera;
+		for (int eye = 0; eye < 2; ++eye)
+		{
+			if (!QuestVR::GetMenuEyeCamera(eye, eyeCamera))
+				break;
+			Renderer::Backend::ISwapChain* swapChain{QuestVR::GetEyeSwapChain(eye)};
+			if (!swapChain || !swapChain->AcquireNextBackbuffer())
+				break;
+			m->sceneRenderer.SetSceneCamera(eyeCamera, eyeCamera);
+			Renderer::Backend::IFramebuffer* framebuffer{swapChain->GetCurrentBackbuffer(
+				Renderer::Backend::AttachmentLoadOp::CLEAR,
+				Renderer::Backend::AttachmentStoreOp::STORE,
+				Renderer::Backend::AttachmentLoadOp::CLEAR,
+				Renderer::Backend::AttachmentStoreOp::DONT_CARE)};
+			Renderer::Backend::IDeviceCommandContext::Rect viewportRect{};
+			QuestVR::GetEyeRenderSize(viewportRect.width, viewportRect.height);
+			viewportRect.y = framebuffer->GetHeight() - viewportRect.height;
+			m->deviceCommandContext->BeginFramebufferPass(framebuffer);
+			m->deviceCommandContext->SetViewports(1, &viewportRect);
+			QuestVR::DrawLaser(*m->deviceCommandContext, false);
+			m->deviceCommandContext->EndFramebufferPass();
+			swapChain->Present();
+			eyesRendered = eyesOverlay = eye == 1;
+		}
+	}
+
+	// GUI on the floating panel.
+	bool panelRendered{false};
+	Renderer::Backend::ISwapChain* panel{QuestVR::GetPanelSwapChain()};
+	if (panel && panel->AcquireNextBackbuffer())
+	{
+		BeginFrame();
+		Renderer::Backend::IFramebuffer* framebuffer{panel->GetCurrentBackbuffer(
+			Renderer::Backend::AttachmentLoadOp::CLEAR,
+			Renderer::Backend::AttachmentStoreOp::STORE,
+			Renderer::Backend::AttachmentLoadOp::CLEAR,
+			Renderer::Backend::AttachmentStoreOp::DONT_CARE)};
+		Renderer::Backend::IDeviceCommandContext::Rect viewportRect{};
+		viewportRect.width = framebuffer->GetWidth();
+		viewportRect.height = framebuffer->GetHeight();
+		m->deviceCommandContext->BeginFramebufferPass(framebuffer);
+		m->deviceCommandContext->SetViewports(1, &viewportRect);
+		Render2D(true, true);
+		{
+			CCanvas2D canvas(g_VideoMode.GetWindowWidth(), g_VideoMode.GetWindowHeight(),
+				g_VideoMode.GetScale(), m->deviceCommandContext.get());
+			QuestVR::DrawPanelOverlay(canvas);
+		}
+		m->deviceCommandContext->EndFramebufferPass();
+		panel->Present();
+		EndFrame();
+		panelRendered = true;
+	}
+
+	g_Profiler2.RecordGPUFrameEnd(m->deviceCommandContext.get());
+
+	m->deviceCommandContext->Flush();
+	QuestVR::EndFrame(m->device, eyesRendered, panelRendered, eyesOverlay);
+
+	m->linearAllocator.Release();
 }
 
 void CRenderer::RenderFrameImpl(

@@ -62,6 +62,8 @@ class CCamera
 		const CMatrix3D& GetProjection() const { return m_ProjMat; }
 		CMatrix3D GetViewProjection() const { return m_ProjMat * m_Orientation.GetInverse(); }
 		void SetProjection(const CMatrix3D& matrix);
+		// Near/far planes matching a custom projection, used by shadows and water.
+		void SetNearFarPlanes(float nearp, float farp) { m_NearPlane = nearp; m_FarPlane = farp; }
 		void SetProjectionFromCamera(const CCamera& camera);
 		void SetOrthoProjection(float nearp, float farp, float scale);
 		void SetPerspectiveProjection(float nearp, float farp, float fov);

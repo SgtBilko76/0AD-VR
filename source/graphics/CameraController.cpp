@@ -32,6 +32,7 @@
 #include "ps/Game.h"
 #include "ps/Globals.h"
 #include "ps/Hotkey.h"
+#include "ps/QuestVR.h"
 #include "ps/VideoMode.h"
 #include "ps/World.h"
 #include "renderer/Renderer.h"
@@ -224,6 +225,20 @@ void CCameraController::Update(const float deltaRealTime)
 		moveForward += m_ViewScrollSpeed * deltaRealTime;
 	if (HotkeyIsPressed("camera.down"))
 		moveForward -= m_ViewScrollSpeed * deltaRealTime;
+
+	{
+		// Thumbsticks in Quest VR; panning speed follows the zoom so the
+		// tabletop moves at a steady pace.
+		const QuestVR::CameraInput vrInput{QuestVR::GetCameraInput()};
+		const float distance{(m_Camera.GetOrientation().GetTranslation() - GetSmoothPivot(m_Camera)).Length()};
+		const float zoomFactor{std::max(0.5f, distance / std::max(1.0f, m_ViewZoomDefault))};
+		moveRightward += vrInput.right * m_ViewScrollSpeed * zoomFactor * deltaRealTime;
+		moveForward += vrInput.forward * m_ViewScrollSpeed * zoomFactor * deltaRealTime;
+		if (vrInput.rotate)
+			m_RotateY.AddSmoothly(-vrInput.rotate * m_ViewRotateYSpeed * deltaRealTime);
+		if (vrInput.zoom)
+			m_Zoom.AddSmoothly(-vrInput.zoom * m_ViewZoomSpeed * deltaRealTime);
+	}
 
 	if (moveRightward || moveForward)
 	{
