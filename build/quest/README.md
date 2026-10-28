@@ -6,6 +6,8 @@ panel; VR and mixed reality (passthrough) modes. VR code: `source/ps/QuestVR.cpp
 
 ## Controls
 
+![0 A.D. VR controller mapping](../../docs/controls.webp)
+
 Right controller: laser = mouse, trigger = left click / drag to box select,
 grip = right click (orders), A = follow selection, B = Escape,
 stick = rotate (left/right) and zoom (up/down).
