@@ -1,5 +1,7 @@
 # 0 A.D. VR for Meta Quest (standalone)
 
+**Download, install guide, controls and pictures: [portroyale.online/0ad.html](https://portroyale.online/0ad.html)**
+
 Cross-compiles pyrogenesis for Meta Quest 3/3S (arm64-v8a Android, Vulkan +
 OpenXR). The battlefield is shown as a 3D tabletop, the GUI on a floating
 panel; VR and mixed reality (passthrough) modes. VR code: `source/ps/QuestVR.cpp`.
